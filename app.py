@@ -8,10 +8,12 @@ from PIL import Image
 DATA_DIR = "mahjong_quiz_data"
 IMG_DIR = os.path.join(DATA_DIR, "images")
 JSON_PATH = os.path.join(DATA_DIR, "problems.json")
+CATEGORIES_PATH = os.path.join(DATA_DIR, "categories.json")
 
 os.makedirs(IMG_DIR, exist_ok=True)
 
-CATEGORIES = [
+# デフォルトの分野リスト
+DEFAULT_CATEGORIES = [
     "牌効率",
     "押し引き",
     "守備",
@@ -20,6 +22,16 @@ CATEGORIES = [
     "点数計算・役",
     "その他"
 ]
+
+def load_categories():
+    if os.path.exists(CATEGORIES_PATH):
+        with open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return DEFAULT_CATEGORIES
+
+def save_categories(categories):
+    with open(CATEGORIES_PATH, "w", encoding="utf-8") as f:
+        json.dump(categories, f, ensure_ascii=False, indent=2)
 
 def load_problems():
     if os.path.exists(JSON_PATH):
@@ -35,19 +47,25 @@ st.set_page_config(page_title="麻雀 場面復習アプリ", layout="wide")
 
 st.title("🀄 麻雀 場面・牌姿復習アプリ")
 
+# データの読み込み
+categories = load_categories()
+problems = load_problems()
+
 # サイドバー：メニューと分野別問題数
 st.sidebar.header("📌 メニュー & 統計")
-menu = st.sidebar.radio("モード選択", ["問題演習・順次", "ランダム出題", "問題登録", "データ管理・バックアップ"])
-
-problems = load_problems()
+menu = st.sidebar.radio("モード選択", ["問題演習・順次", "ランダム出題", "問題登録", "分野管理", "データ管理・バックアップ"])
 
 # 分野別の問題数カウント
 st.sidebar.subheader("📊 分野別登録数")
-counts = {cat: 0 for cat in CATEGORIES}
+counts = {cat: 0 for cat in categories}
 for p in problems:
     cat = p.get("category", "その他")
     if cat in counts:
         counts[cat] += 1
+    else:
+        # 存在しないカテゴリの場合は「その他」などに寄せる、またはそのままカウント
+        if "その他" in counts:
+            counts["その他"] += 1
 
 total_count = len(problems)
 st.sidebar.text(f"合計登録数: {total_count} 問")
@@ -79,7 +97,7 @@ if menu == "問題演習・順次":
         st.subheader("🔍 絞り込み設定")
         selected_categories = st.multiselect(
             "復習する分野を選択してください（未選択の場合はすべて出題）",
-            options=CATEGORIES,
+            options=categories,
             default=[]
         )
         
@@ -106,15 +124,12 @@ if menu == "問題演習・順次":
             if current_p.get('question_text'):
                 st.markdown(f"**状況・メモ:** {current_p.get('question_text')}")
                 
-            # 牌姿画像
             show_image(current_p.get('image_path'), "牌姿・場面画像")
             
-            # 解説の表示切替
             show_answer = st.checkbox("💡 解説を表示する", key=f"ans_seq_{current_p['id']}")
             
             if show_answer:
                 st.success(f"**【解説・理由】**\n\n{current_p.get('explanation')}")
-                # 解説用画像
                 show_image(current_p.get('explanation_image_path'), "解説用画像")
             
             st.divider()
@@ -139,7 +154,7 @@ elif menu == "ランダム出題":
         st.subheader("🔍 絞り込み設定")
         rand_categories = st.multiselect(
             "出題する分野を選択してください（未選択の場合はすべての分野から出題）",
-            options=CATEGORIES,
+            options=categories,
             default=[],
             key="rand_cat_select"
         )
@@ -169,15 +184,12 @@ elif menu == "ランダム出題":
             if current_p.get('question_text'):
                 st.markdown(f"**状況・メモ:** {current_p.get('question_text')}")
                 
-            # 牌姿画像
             show_image(current_p.get('image_path'), "牌姿・場面画像")
             
-            # 解説の表示切替
             show_answer = st.checkbox("💡 解説を表示する", key=f"ans_rand_{current_p['id']}")
             
             if show_answer:
                 st.success(f"**【解説・理由】**\n\n{current_p.get('explanation')}")
-                # 解説用画像
                 show_image(current_p.get('explanation_image_path'), "解説用画像")
             
             st.divider()
@@ -198,7 +210,7 @@ elif menu == "問題登録":
     st.header("📝 新規問題の登録")
     
     with st.form("registration_form", clear_on_submit=True):
-        category = st.selectbox("分野", options=CATEGORIES)
+        category = st.selectbox("分野", options=categories)
         question_text = st.text_area("状況・条件のメモ（例: 東3局 巡目、点数状況など）")
         uploaded_file = st.file_uploader("牌姿・場面の画像を選択", type=["png", "jpg", "jpeg"], key="q_img")
         explanation = st.text_area("解説・理由（例: 5s外し、安全牌の残し方など）")
@@ -212,14 +224,12 @@ elif menu == "問題登録":
             else:
                 problem_id = str(len(problems) + 1000)
                 
-                # メイン画像の保存
                 img_ext = uploaded_file.name.split(".")[-1]
                 img_filename = f"prob_{problem_id}.{img_ext}"
                 img_path = os.path.join(IMG_DIR, img_filename)
                 with open(img_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                # 解説用画像の保存（任意）
                 exp_img_path = None
                 if uploaded_exp_file:
                     exp_ext = uploaded_exp_file.name.split(".")[-1]
@@ -242,13 +252,85 @@ elif menu == "問題登録":
                 st.success("問題が正常に登録されました！")
 
 
-# 4. Data Management & Backup Mode
+# 4. 分野管理モード
+elif menu == "分野管理":
+    st.header("🏷️ 分野（カテゴリ）の管理")
+    
+    st.markdown("現在登録されている分野の追加・編集・削除が行えます。")
+    
+    # 新規分野の追加
+    st.subheader("➕ 新規分野の追加")
+    new_cat_name = st.text_input("追加する分野名を入力")
+    if st.button("分野を追加"):
+        if new_cat_name.strip() and new_cat_name not in categories:
+            categories.append(new_cat_name.strip())
+            save_categories(categories)
+            st.success(f"分野「{new_cat_name}」を追加しました！")
+            st.rerun()
+        elif new_cat_name in categories:
+            st.warning("その分野はすでに存在します。")
+        else:
+            st.warning("有効な分野名を入力してください。")
+
+    st.divider()
+    st.subheader("✏️ 既存分野の編集・削除")
+    
+    if categories:
+        selected_cat = st.selectbox("管理する分野を選択", options=categories)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            renamed_cat = st.text_input("分野名を変更する場合の新しい名前", value=selected_cat)
+            if st.button("分野名を更新"):
+                if renamed_cat.strip() and renamed_cat not in categories:
+                    old_name = selected_cat
+                    # カテゴリリストの更新
+                    idx = categories.index(old_name)
+                    categories[idx] = renamed_cat.strip()
+                    save_categories(categories)
+                    
+                    # 登録されている問題のカテゴリ名も一括で書き換える
+                    for p in problems:
+                        if p.get("category") == old_name:
+                            p["category"] = renamed_cat.strip()
+                    save_problems(problems)
+                    
+                    st.success(f"分野名を「{old_name}」から「{renamed_cat}」に変更しました！")
+                    st.rerun()
+                elif renamed_cat in categories:
+                    st.warning("その名前の分野はすでに存在します。")
+                else:
+                    st.warning("有効な名前を入力してください。")
+                    
+        with col2:
+            st.write("")
+            st.write("")
+            if len(categories) > 1:
+                if st.button("選択した分野を削除"):
+                    # 削除されたカテゴリに属していた問題はどうするか（例: 「その他」に変更）
+                    categories.remove(selected_cat)
+                    save_categories(categories)
+                    
+                    for p in problems:
+                        if p.get("category") == selected_cat:
+                            p["category"] = "その他"  # デフォルトへ逃がす
+                    save_problems(problems)
+                    
+                    st.success(f"分野「{selected_cat}」を削除しました（該当問題は「その他」に移動しました）！")
+                    st.rerun()
+            else:
+                st.warning("すべての分野を削除することはできません。")
+    else:
+        st.info("登録されている分野がありません。")
+
+
+# 5. データ管理・バックアップモード
 elif menu == "データ管理・バックアップ":
     st.header("💾 データ管理・バックアップ・削除")
     
     st.markdown("""
-    - **自動保存:** 登録したデータと画像は、ローカルの `mahjong_quiz_data` フォルダに自動保存されます。
-    - **バックアップ:** 現在の全データをJSONファイルとしてダウンロードできます。
+    - **自動保存:** 登録したデータや分野、画像は、ローカルの `mahjong_quiz_data` フォルダに自動保存されます。
+    - **バックアップ:** 現在の全問題データをJSONファイルとしてダウンロードできます。
     """)
     
     if problems:
@@ -262,15 +344,11 @@ elif menu == "データ管理・バックアップ":
         
         st.divider()
         st.subheader("🗑️ 問題の個別削除")
-        st.write("削除したい問題を選択してください。")
-        
-        # 削除する問題を選ぶセレクトボックスを作成
         problem_options = {f"ID: {p['id']} [{p['category']}] {p.get('question_text', '（メモなし）')[:20]}...": p['id'] for p in problems}
         selected_to_delete_label = st.selectbox("削除する問題", options=list(problem_options.keys()))
         
         if st.button("選択した問題を削除する"):
             target_id = problem_options[selected_to_delete_label]
-            # 該当ID以外の問題を残す
             updated_problems = [p for p in problems if p['id'] != target_id]
             save_problems(updated_problems)
             st.success(f"問題（ID: {target_id}）を削除しました！")
@@ -279,9 +357,9 @@ elif menu == "データ管理・バックアップ":
         st.divider()
         st.subheader("⚠️ 全データの削除")
         st.write(f"現在登録されている問題数: {len(problems)}問")
-        if st.button("すべてのデータを一括削除する（※注意）"):
+        if st.button("すべての問題を一括削除する（※注意）"):
             save_problems([])
             st.warning("すべての問題データを削除しました。")
             st.rerun()
     else:
-        st.info("管理するデータがありません。")
+        st.info("管理する問題データがありません。")
